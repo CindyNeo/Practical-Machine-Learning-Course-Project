@@ -1,0 +1,194 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Cindy Neo"
+date: "21-04-2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Overview
+
+In this project, we will use the data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which the exercise was done. This is the "classe" variable in the training set. We will train 4 different models - **Decision Trees**, **Random Forest**, **Gradient Boosted Trees**, and **Support Vector Machine** - using k-folds cross validation on the training set. We will then predict using a validation set which is randomly selected from the training set, to obtain the **accuracy** and **out of sample error rate**. Based on these metrics, we will then decide on the final model to be used to predict the 20 cases on the test set.
+
+## Background
+
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit*, it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement -- a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, my goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+The training data for this project are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+The data for this project come from this source: <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har>
+
+## Load Data
+
+First, let's load the training data and test data.
+
+```{r training and test data}
+## Check if the file exists
+if (!file.exists("Dataset")) {
+    dir.create("Dataset")
+}
+
+## Load the training data
+trainUrl = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainUrl, destfile = "./Dataset/pml-training.csv")
+trainData = read.csv("./Dataset/pml-training.csv")
+
+## Load the test data
+testUrl = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(testUrl, destfile = "./Dataset/pml-testing.csv")
+testData = read.csv("./Dataset/pml-testing.csv")
+
+dim(trainData)
+dim(testData)
+```
+
+We see that there are 160 variables in both training and test data, with 19622 observations in the training data and 20 observations in the test data.
+
+## Clean Data
+
+Let's remove the unnecessary variables.
+
+```{r clean data}
+## Removing variables which are mostly NA values
+trainData <- trainData[, colMeans(is.na(trainData)) < 0.90]
+
+## Removing metadata which are irrelevant to the outcome
+trainData <- trainData[, -c(1: 7)]
+
+## Removing near zero variance variables
+library(caret)
+nzv <- nearZeroVar(trainData)
+trainData <- trainData[, -nzv]
+dim(trainData)
+```
+
+## Training and Validation Set
+
+Now that we have removed the unnecessary variables, we can now split the training data into a training set and a validation set. The test data will be left alone, and used for prediction after we have selected our final model.
+
+```{r data partition into training and validation}
+set.seed(1234)
+inTrain <- createDataPartition(y = trainData$classe,
+                               p = 0.7, list = FALSE)
+
+## Create training set
+training <- trainData[inTrain, ]
+
+## Create validation set
+validation <- trainData[-inTrain, ]
+
+dim(training)
+dim(validation)
+```
+
+## Create and Test the Models
+
+We will train 4 different models - **Decision Trees**, **Random Forest**, **Gradient Boosted Trees**, and **Support Vector Machine** - using k-folds cross validation on the training set. We will then predict using the validation set to obtain the **accuracy** and **out of sample error rate**.
+
+Set up control to use 3-fold cross validation on the training set.
+
+```{r control}
+control <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+```
+
+### Decision Trees
+
+**Model**:
+
+```{r Decision Trees Model}
+DT <- train(classe ~ ., data = training, method = "rpart", trControl = control, tuneLength = 5)
+
+library(rattle)
+fancyRpartPlot(DT$finalModel)
+```
+
+**Prediction**:
+
+```{r Decision Trees Prediction}
+DT_pred <- predict(DT, newdata = validation)
+DT_prediction <- confusionMatrix(DT_pred, factor(validation$classe))
+DT_prediction
+```
+
+### Random Forest
+
+**Model**:
+
+```{r Random Forest Model}
+RF <- train(classe ~ ., data = training, method = "rf", trControl = control, tuneLength = 5)
+```
+
+**Prediction**:
+
+```{r Random Forest Prediction}
+RF_pred <- predict(RF, newdata = validation)
+RF_prediction <- confusionMatrix(RF_pred, factor(validation$classe))
+RF_prediction
+```
+
+### Gradient Boosted Trees
+
+**Model**:
+
+```{r Gradient Boosted Trees Model}
+GBM <- train(classe ~ ., data = training, method = "gbm", trControl = control, tuneLength = 5, verbose = FALSE)
+```
+
+**Prediction**:
+
+```{r Gradient Boosted Trees Prediction}
+GBM_pred <- predict(GBM, newdata = validation)
+GBM_prediction <- confusionMatrix(GBM_pred, factor(validation$classe))
+GBM_prediction
+```
+
+### Support Vector Machine
+
+**Model**:
+
+```{r Support Vector Machine Model}
+SVM <- train(classe ~ ., data = training, method = "svmLinear", trControl = control)
+```
+
+**Prediction**:
+
+```{r Support Vector Machine Prediction}
+SVM_pred <- predict(SVM, newdata = validation)
+SVM_prediction <- confusionMatrix(SVM_pred, factor(validation$classe))
+SVM_prediction
+```
+
+## Results (Accuracy and out of sample error rate)
+
+Let's look at the results (accuracy and out of sample error rate) of the 4 models.
+
+```{r results}
+## Create matrix with 2 columns and 4 rows
+result = round(matrix(data = c(DT_prediction$overall[1], RF_prediction$overall[1], GBM_prediction$overall[1], SVM_prediction$overall[1], 1 - DT_prediction$overall[1], 1 - RF_prediction$overall[1], 1 - GBM_prediction$overall[1], 1 - SVM_prediction$overall[1]), ncol = 2), digits = 4)
+
+## Specify the column names and row names of matrix
+colnames(result) = c('Accuracy', 'Out of Sample Error')
+rownames(result) = c('Decision Trees', 'Random Forest', 'Gradient Boosted Trees', 'Support Vector Machine')
+
+## Assign and display the table
+final = as.table(result)
+final
+```
+
+Based on the results, Random Forest is the best model, with an accuracy rate of `r round(RF_prediction$overall[1], digits = 4)` and an out of sample error of `r round(1 - RF_prediction$overall[1], digits = 4)`.
+
+## Prediction on the Test Data
+
+We will now use the Random Forest model to predict the 20 cases on the test set.
+
+```{r prediction}
+predict <- predict(RF, testData)
+print(predict)
+```
